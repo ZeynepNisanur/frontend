@@ -21,7 +21,7 @@ export default function Calisanlar({
         try {
             await api.post(
                 "/api/calisanlar",
-                { ad, soyad, email: eposta, pozisyon },
+                { ad, soyad, eposta, pozisyon },
                 { headers: authHeaders() }
             );
 
@@ -40,7 +40,7 @@ export default function Calisanlar({
         const pozisyon = window.prompt("Yeni pozisyon:", calisan.pozisyon || "") ?? "";
 
         try {
-            await api.put(`/api/calisanlar/${calisan.id}`, { ad, eposta, pozisyon }, { headers: authHeaders() });
+            await api.put(`/api/calisanlar/${calisan.id}`, { ad, soyad, eposta, pozisyon }, { headers: authHeaders() });
             alert("Çalışan güncellendi ✅");
             await refreshAll();
         } catch (err) {
@@ -169,7 +169,9 @@ export default function Calisanlar({
                                             </div>
                                             <div>
                                                 <h4 style={{ margin: '0', fontSize: '18px', color: '#2c3e50' }}>
-                                                    {calisan.ad || 'İsim Belirtilmemiş'}
+                                                    {calisan.ad && calisan.soyad
+                                                        ? `${calisan.ad} ${calisan.soyad}`
+                                                        : calisan.ad || calisan.soyad || 'İsim Belirtilmemiş'}
                                                 </h4>
                                                 <p style={{ margin: '2px 0 0 0', color: '#7f8c8d', fontSize: '14px' }}>
                                                     ID: {calisan.id}
@@ -197,11 +199,53 @@ export default function Calisanlar({
 
                                 <div style={{ borderTop: '1px solid #ecf0f1', paddingTop: '15px' }}>
                                     <p style={{ margin: '0 0 8px 0', color: '#7f8c8d', fontSize: '14px' }}>
-                                        📧 {calisan.email || 'Email Belirtilmemiş'}
+                                        📧 {calisan.eposta || 'Email Belirtilmemiş'}
                                     </p>
-                                    <p style={{ margin: '0', color: '#7f8c8d', fontSize: '14px' }}>
+                                    <p style={{ margin: '0 0 8px 0', color: '#7f8c8d', fontSize: '14px' }}>
                                         📞 {calisan.telefon || 'Telefon Belirtilmemiş'}
                                     </p>
+
+                                    {/* Çalışanın Projeleri */}
+                                    <div style={{ marginTop: '12px' }}>
+                                        <p style={{ margin: '0 0 6px 0', color: '#34495e', fontSize: '14px', fontWeight: '500' }}>
+                                            🔧 Aktif Projeler:
+                                        </p>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                                            {(() => {
+                                                // Debug bilgisi
+                                                console.log(`Çalışan ${calisan.id} - Projeler:`, calisan.projeler);
+
+                                                if (calisan.projeler && Array.isArray(calisan.projeler) && calisan.projeler.length > 0) {
+                                                    return calisan.projeler.map((proje, idx) => (
+                                                        <span key={idx} style={{
+                                                            backgroundColor: '#e3f2fd',
+                                                            color: '#1976d2',
+                                                            padding: '3px 8px',
+                                                            borderRadius: '12px',
+                                                            fontSize: '12px',
+                                                            border: '1px solid #bbdefb',
+                                                            display: 'inline-block'
+                                                        }}>
+                                                            {proje.baslik || proje.ad || proje.isim || proje.name || proje.title || 'İsimsiz Proje'}
+                                                        </span>
+                                                    ));
+                                                } else {
+                                                    return (
+                                                        <span style={{
+                                                            color: '#6c757d',
+                                                            fontSize: '12px',
+                                                            fontStyle: 'italic'
+                                                        }}>
+                                                            {(calisanlarOzet.calisanProjeSayilari?.[calisan.id] || 0) > 0
+                                                                ? `${calisanlarOzet.calisanProjeSayilari[calisan.id]} proje atanmış (detaylar API'den gelmiyor)`
+                                                                : 'Henüz proje atanmamış'
+                                                            }
+                                                        </span>
+                                                    );
+                                                }
+                                            })()}
+                                        </div>
+                                    </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                                     <button
