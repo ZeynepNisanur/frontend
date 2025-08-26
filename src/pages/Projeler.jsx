@@ -1,7 +1,6 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
 export default function Projeler({
-    projelerOzet,
     role,
     authHeaders,
     refreshAll,
@@ -12,24 +11,179 @@ export default function Projeler({
     formatDate,
     api
 }) {
+    const [projelerOzet, setProjelerOzet] = useState(null);
+    const [projelerDetay, setProjelerDetay] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState("");
+
+    // Proje verilerini yükle
+    const loadProjelerData = async () => {
+        try {
+            setLoading(true);
+            setError("");
+
+            // Token kontrolü
+            const token = localStorage.getItem("token");
+            if (!token) {
+                setError("Token bulunamadı. Lütfen tekrar giriş yapın.");
+                return;
+            }
+
+            const headers = authHeaders();
+            console.log("Projeler API isteği gönderiliyor, headers:", headers);
+
+            // Farklı endpoint'leri deneyelim
+            let projelerData = [];
+            let projelerOzetData = null;
+
+            try {
+                // Ana projeler listesi
+                const projelerRes = await api.get("/api/projeler", { headers });
+                projelerData = projelerRes.data;
+                console.log("Projeler verisi:", projelerData);
+            } catch (err) {
+                console.warn("Ana projeler endpoint hatası:", err.response?.status, err.response?.data);
+                // Alternatif endpoint denemeleri
+                try {
+                    const altRes = await api.get("/api/dashboard/projeler", { headers });
+                    projelerData = altRes.data;
+                } catch (altErr) {
+                    console.warn("Alternatif projeler endpoint de başarısız:", altErr.response?.status);
+                }
+            }
+
+            try {
+                // Özet bilgiler
+                const ozetRes = await api.get("/api/dashboard/projeler-ozet", { headers });
+                projelerOzetData = ozetRes.data;
+                console.log("Projeler özet verisi:", projelerOzetData);
+            } catch (err) {
+                console.warn("Projeler özet endpoint hatası:", err.response?.status, err.response?.data);
+            }
+
+            // Veriyi normalize et
+            if (Array.isArray(projelerData)) {
+                setProjelerDetay(projelerData);
+            } else if (projelerData?.projeler && Array.isArray(projelerData.projeler)) {
+                setProjelerDetay(projelerData.projeler);
+            }
+
+            if (projelerOzetData) {
+                setProjelerOzet(projelerOzetData);
+            } else {
+                // Özet veri yoksa kendi oluşturalım
+                const durumDagilimi = {};
+                const projelerArray = Array.isArray(projelerData) ? projelerData : [];
+
+                projelerArray.forEach(proje => {
+                    const durum = proje.durum || 'BELIRTILMEMIS';
+                    durumDagilimi[durum] = (durumDagilimi[durum] || 0) + 1;
+                });
+
+                setProjelerOzet({
+                    toplamProjeSayisi: projelerArray.length,
+                    projeler: projelerArray,
+                    durumDagilimi: durumDagilimi
+                });
+            }
+
+        } catch (error) {
+            console.error("Projeler yükleme hatası:", error);
+            setError("Proje verileri yüklenirken hata oluştu: " + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadProjelerData();
+    }, []);
+
     const createProject = async () => {
+        // Token kontrolü
+        const token = localStorage.getItem("token");
+        if (!token) {
+            alert("Token bulunamadı. Lütfen tekrar giriş yapın.");
+            return;
+        }
+
         const baslik = window.prompt("Proje başlığı:");
         if (!baslik) return;
+
         const aciklama = window.prompt("Açıklama (opsiyonel):") || "";
-        const baslangicTarihi = window.prompt("Başlangıç (YYYY-MM-DD):") || "";
-        const bitisTarihi = window.prompt("Bitiş (YYYY-MM-DD):") || "";
-        const durum = window.prompt("Durum (DEVAM_EDIYOR / TAMAMLANDI / ARA_VERILDI):") || "DEVAM_EDIYOR";
+        const baslangicTarihi = window.prompt("Başlangıç tarihi (YYYY-MM-DD formatında, opsiyonel):") || "";
+        const bitisTarihi = window.prompt("Bitiş tarihi (YYYY-MM-DD formatında, opsiyonel):") || "";
+
+        // Durum seçimi için daha kullanıcı dostu yaklaşım
+        const durumSecenekleri = {
+            "1": "DEVAM_EDIYOR",
+            "2": "TAMAMLANDI",
+            "3": "ARA_VERILDI"
+        };
+
+        let durumSecimi = window.prompt(
+            "Proje durumu seçin:\n" +
+            "1. Devam Ediyor\n" +
+            "2. Tamamlandı\n" +
+            "3. Ara Verildi\n\n" +
+            "Lütfen 1, 2 veya 3 yazın (varsayılan: 1):"
+        ) || "1";
+
+        const durum = durumSecenekleri[durumSecimi] || "DEVAM_EDIYOR";
 
         try {
-            await api.post(
+            console.log("Yeni proje ekleniyor:", { baslik, aciklama, baslangicTarihi, bitisTarihi, durum });
+
+            const requestData = {
+                baslik,
+                aciklama,
+                durum
+            };
+
+            // Tarih varsa ekle
+            if (baslangicTarihi) {
+                requestData.baslangicTarihi = baslangicTarihi;
+            }
+            if (bitisTarihi) {
+                requestData.bitisTarihi = bitisTarihi;
+            }
+
+            const response = await api.post(
                 "/api/projeler",
-                { baslik, aciklama, baslangicTarihi, bitisTarihi, durum },
-                { headers: authHeaders() }
+                requestData,
+                {
+                    headers: authHeaders(),
+                    timeout: 10000 // 10 saniye timeout
+                }
             );
-            alert("Proje eklendi ✅");
-            await refreshAll();
+
+            console.log("Proje ekleme response:", response.data);
+            alert("Proje başarıyla eklendi! ✅");
+            await loadProjelerData(); // Kendi reload fonksiyonumuzu kullan
+            if (refreshAll) await refreshAll(); // Ana dashboard'u da yenile
         } catch (err) {
-            alert("Proje eklenemedi: " + (err.response?.data || err.message));
+            console.error("Proje ekleme hatası:", err);
+            console.error("Error response:", err.response);
+
+            let errorMessage = "Bilinmeyen hata";
+
+            if (err.response?.status === 401) {
+                errorMessage = "Yetki hatası. Token geçersiz veya süresi dolmuş. Lütfen tekrar giriş yapın.";
+                // Token'ı temizle ve login sayfasına yönlendir
+                localStorage.removeItem("token");
+                window.location.href = "/";
+                return;
+            } else if (err.response?.status === 403) {
+                errorMessage = "Bu işlem için yetkiniz yok. Admin olmanız gerekiyor.";
+            } else if (err.response?.status === 400) {
+                errorMessage = "Geçersiz veri girişi. Lütfen bilgileri kontrol edin.";
+            } else if (err.response?.status === 500) {
+                errorMessage = "Sunucu hatası. Lütfen daha sonra tekrar deneyin.";
+            } else {
+                errorMessage = err.response?.data?.message || err.response?.data || err.message;
+            }
+
+            alert("Proje eklenemedi: " + errorMessage);
         }
     };
 
@@ -80,55 +234,55 @@ export default function Projeler({
                 headers: authHeaders()
             });
 
-            // Farklı endpoint denemeleri için alternatifler
+            // Farklı endpoint denemeleri
             let response;
-            try {
-                // İlk deneme: PUT /api/projeler/{projeId}/durum
-                response = await api.put(
-                    `/api/projeler/${projeId}/durum`,
-                    { durum: newStatus },
-                    { headers: authHeaders() }
-                );
-            } catch (firstError) {
-                console.log("İlk endpoint başarısız, alternatif deneniyor...", firstError.response?.status);
+            const endpoints = [
+                `/api/projeler/${projeId}/durum`,
+                `/api/projeler/${projeId}`,
+                `/api/projeler/${projeId}/status`
+            ];
 
-                if (firstError.response?.status === 403 || firstError.response?.status === 404) {
+            const methods = ['put', 'patch'];
+            let lastError;
+
+            for (const method of methods) {
+                for (const endpoint of endpoints) {
                     try {
-                        // İkinci deneme: PUT /api/projeler/{projeId}
-                        response = await api.put(
-                            `/api/projeler/${projeId}`,
+                        console.log(`Denenen: ${method.toUpperCase()} ${endpoint}`);
+                        response = await api[method](
+                            endpoint,
                             { durum: newStatus },
                             { headers: authHeaders() }
                         );
-                    } catch (secondError) {
-                        console.log("İkinci endpoint başarısız, üçüncü deneniyor...", secondError.response?.status);
-
-                        // Üçüncü deneme: PATCH /api/projeler/{projeId}
-                        response = await api.patch(
-                            `/api/projeler/${projeId}`,
-                            { durum: newStatus },
-                            { headers: authHeaders() }
-                        );
+                        console.log("Başarılı response:", response.data);
+                        break;
+                    } catch (err) {
+                        console.log(`${method.toUpperCase()} ${endpoint} başarısız:`, err.response?.status);
+                        lastError = err;
+                        if (err.response?.status !== 404 && err.response?.status !== 405) {
+                            throw err; // 404 ve 405 dışındaki hatalar için döngüyü kır
+                        }
                     }
-                } else {
-                    throw firstError;
                 }
+                if (response) break;
+            }
+
+            if (!response) {
+                throw lastError || new Error("Tüm endpoint'ler başarısız");
             }
 
             alert(`Proje durumu "${statusDisplayNames[newStatus]}" olarak güncellendi ✅`);
-            await refreshAll();
+            await loadProjelerData();
+            if (refreshAll) await refreshAll();
         } catch (err) {
             console.error("API Hatası:", err);
-            console.error("Error response:", err.response);
-            console.error("Error status:", err.response?.status);
-            console.error("Error data:", err.response?.data);
 
             let errorMessage = "Bilinmeyen hata";
 
             if (err.response?.status === 403) {
                 errorMessage = "Yetki hatası: Bu projeyi güncelleme yetkiniz yok";
             } else if (err.response?.status === 404) {
-                errorMessage = "Proje bulunamadı veya endpoint mevcut değil";
+                errorMessage = "Proje bulunamadı";
             } else if (err.response?.status === 401) {
                 errorMessage = "Oturum süresi dolmuş, lütfen tekrar giriş yapın";
             } else {
@@ -140,49 +294,109 @@ export default function Projeler({
     };
 
     const deleteProject = async (projeId) => {
-        if (!window.confirm("Bu proje silinsin mi?")) return;
+        if (!window.confirm("Bu proje silinsin mi? Bu işlem geri alınamaz!")) return;
+
         try {
             await api.delete(`/api/projeler/${projeId}`, { headers: authHeaders() });
             alert("Proje silindi 🗑️");
-            await refreshAll();
+            await loadProjelerData();
+            if (refreshAll) await refreshAll();
         } catch (err) {
-            alert("Silme hatası: " + (err.response?.data || err.message));
+            console.error("Proje silme hatası:", err);
+            alert("Silme hatası: " + (err.response?.data?.message || err.response?.data || err.message));
         }
     };
 
-    const addEmployeeToThisProject = async (projeId) => {
-        const calisanId = window.prompt("Hangi çalışan ID eklensin?");
+    const addEmployeeToProject = async (projeId) => {
+        const calisanId = window.prompt("Hangi çalışan ID'si eklensin?");
         if (!calisanId) return;
 
         try {
-            // Backend'inizdeki doğru endpoint: /api/projeler/{projeId}/calisanlar/{calisanId}/ekle
-            await api.post(`/api/projeler/${projeId}/calisanlar/${calisanId}/ekle`, {}, { headers: authHeaders() });
+            // Farklı endpoint formatlarını deneyelim
+            const endpoints = [
+                `/api/projeler/${projeId}/calisanlar/${calisanId}/ekle`,
+                `/api/projeler/${projeId}/calisanlar`,
+                `/api/projeler/${projeId}/employees/${calisanId}`
+            ];
+
+            let success = false;
+            let lastError;
+
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`Çalışan ekleme denemesi: POST ${endpoint}`);
+                    await api.post(endpoint, {}, { headers: authHeaders() });
+                    success = true;
+                    break;
+                } catch (err) {
+                    console.log(`POST ${endpoint} başarısız:`, err.response?.status);
+                    lastError = err;
+                    if (err.response?.status !== 404 && err.response?.status !== 405) {
+                        throw err;
+                    }
+                }
+            }
+
+            if (!success) {
+                throw lastError || new Error("Tüm endpoint'ler başarısız");
+            }
+
             alert("Çalışan projeye eklendi ✅");
-            await refreshAll();
+            await loadProjelerData();
+            if (refreshAll) await refreshAll();
         } catch (err) {
-            console.error("API Hatası:", err);
+            console.error("Çalışan ekleme hatası:", err);
             const errorMessage = err.response?.data?.message || err.response?.data || err.message;
             alert("Ekleme hatası: " + errorMessage);
         }
     };
 
-    const removeEmployeeFromThisProject = async (projeId) => {
-        const calisanId = window.prompt("Hangi çalışan ID çıkarılsın?");
+    const removeEmployeeFromProject = async (projeId) => {
+        const calisanId = window.prompt("Hangi çalışan ID'si çıkarılsın?");
         if (!calisanId) return;
 
         try {
-            // Backend'inizdeki doğru endpoint: /api/projeler/{projeId}/calisanlar/{calisanId}/cikar
-            await api.delete(`/api/projeler/${projeId}/calisanlar/${calisanId}/cikar`, { headers: authHeaders() });
+            // Farklı endpoint formatlarını deneyelim
+            const endpoints = [
+                `/api/projeler/${projeId}/calisanlar/${calisanId}/cikar`,
+                `/api/projeler/${projeId}/calisanlar/${calisanId}`,
+                `/api/projeler/${projeId}/employees/${calisanId}`
+            ];
+
+            let success = false;
+            let lastError;
+
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`Çalışan çıkarma denemesi: DELETE ${endpoint}`);
+                    await api.delete(endpoint, { headers: authHeaders() });
+                    success = true;
+                    break;
+                } catch (err) {
+                    console.log(`DELETE ${endpoint} başarısız:`, err.response?.status);
+                    lastError = err;
+                    if (err.response?.status !== 404 && err.response?.status !== 405) {
+                        throw err;
+                    }
+                }
+            }
+
+            if (!success) {
+                throw lastError || new Error("Tüm endpoint'ler başarısız");
+            }
+
             alert("Çalışan projeden çıkarıldı ✅");
-            await refreshAll();
+            await loadProjelerData();
+            if (refreshAll) await refreshAll();
         } catch (err) {
-            console.error("API Hatası:", err);
+            console.error("Çalışan çıkarma hatası:", err);
             const errorMessage = err.response?.data?.message || err.response?.data || err.message;
             alert("Çıkarma hatası: " + errorMessage);
         }
     };
 
-    if (!projelerOzet) {
+    // Loading durumu
+    if (loading) {
         return (
             <div style={{ textAlign: 'center', padding: '50px' }}>
                 <h3>📥 Proje verileri yükleniyor...</h3>
@@ -191,29 +405,81 @@ export default function Projeler({
         );
     }
 
+    // Error durumu
+    if (error) {
+        return (
+            <div style={{
+                color: "red",
+                padding: "20px",
+                backgroundColor: "#ffe6e6",
+                margin: "20px",
+                borderRadius: "8px",
+                border: "1px solid #ffcccc",
+            }}>
+                <strong>Hata:</strong> {error}
+                <br />
+                <button
+                    onClick={loadProjelerData}
+                    style={{
+                        marginTop: "10px",
+                        padding: "8px 16px",
+                        backgroundColor: "#3498db",
+                        color: "white",
+                        border: "none",
+                        borderRadius: "4px",
+                        cursor: "pointer"
+                    }}
+                >
+                    Tekrar Dene
+                </button>
+            </div>
+        );
+    }
+
+    // Projeleri belirle - önce detay listesini, yoksa özetten
+    const projelerListesi = projelerDetay.length > 0
+        ? projelerDetay
+        : (projelerOzet?.projeler || []);
+
+    console.log("Render edilecek projeler:", projelerListesi);
+
     return (
         <div>
             <div style={{ marginBottom: '30px' }}>
                 <h2 style={h2Style}>📋 Projeler Yönetimi</h2>
                 <p style={{ color: '#666', marginBottom: '20px' }}>
-                    <strong>Toplam Proje:</strong> {projelerOzet.toplamProjeSayisi}
+                    <strong>Toplam Proje:</strong> {projelerOzet?.toplamProjeSayisi || projelerListesi.length || 0}
                 </p>
-                {role === "ADMIN" && (
+                <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+                    {(role === "ADMIN" || role === "USER") && (
+                        <button
+                            onClick={createProject}
+                            style={{
+                                padding: '10px 14px',
+                                borderRadius: 8,
+                                border: '1px solid #2ecc71',
+                                background: '#2ecc71',
+                                color: 'white',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            + Yeni Proje
+                        </button>
+                    )}
                     <button
-                        onClick={createProject}
+                        onClick={loadProjelerData}
                         style={{
                             padding: '10px 14px',
                             borderRadius: 8,
-                            border: '1px solid #2ecc71',
-                            background: '#2ecc71',
+                            border: '1px solid #3498db',
+                            background: '#3498db',
                             color: 'white',
-                            cursor: 'pointer',
-                            marginBottom: 14
+                            cursor: 'pointer'
                         }}
                     >
-                        + Yeni Proje
+                        🔄 Yenile
                     </button>
-                )}
+                </div>
             </div>
 
             {/* Proje İstatistikleri */}
@@ -221,10 +487,10 @@ export default function Projeler({
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
                     <StatCard
                         title="Toplam Proje"
-                        value={projelerOzet.toplamProjeSayisi || 0}
+                        value={projelerOzet?.toplamProjeSayisi || projelerListesi.length || 0}
                         color="#2ecc71"
                     />
-                    {projelerOzet.durumDagilimi && (
+                    {projelerOzet?.durumDagilimi && (
                         <>
                             <StatCard
                                 title="Devam Eden"
@@ -246,8 +512,22 @@ export default function Projeler({
                 </div>
             </div>
 
+            {/* Debug Bilgisi */}
+            <div style={{
+                backgroundColor: '#f8f9fa',
+                padding: '10px',
+                borderRadius: '4px',
+                marginBottom: '20px',
+                fontSize: '12px',
+                color: '#6c757d'
+            }}>
+                <strong>Debug:</strong> {projelerListesi.length} proje bulundu.
+                Detay listesi: {projelerDetay.length},
+                Özet listesi: {projelerOzet?.projeler?.length || 0}
+            </div>
+
             {/* Durum Dağılımı */}
-            {projelerOzet.durumDagilimi && Object.keys(projelerOzet.durumDagilimi).length > 0 && (
+            {projelerOzet?.durumDagilimi && Object.keys(projelerOzet.durumDagilimi).length > 0 && (
                 <div style={{ marginBottom: '30px' }}>
                     <h3 style={h3Style}>📊 Proje Durum Dağılımı</h3>
                     <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
@@ -275,15 +555,15 @@ export default function Projeler({
             )}
 
             {/* Proje Listesi */}
-            {projelerOzet.projeler && projelerOzet.projeler.length > 0 ? (
+            {projelerListesi.length > 0 ? (
                 <div>
-                    <h3 style={h3Style}>🚀 Tüm Projeler</h3>
+                    <h3 style={h3Style}>🚀 Tüm Projeler ({projelerListesi.length})</h3>
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))',
                         gap: '20px'
                     }}>
-                        {projelerOzet.projeler.map((proje, index) => (
+                        {projelerListesi.map((proje, index) => (
                             <div key={proje.id || index} style={{
                                 border: '1px solid #e1e8ed',
                                 borderRadius: '12px',
@@ -348,7 +628,7 @@ export default function Projeler({
                                     </div>
                                 </div>
 
-                                {/* Proje Açıklaması varsa */}
+                                {/* Proje Açıklaması */}
                                 {proje.aciklama && (
                                     <div style={{
                                         borderTop: '1px solid #ecf0f1',
@@ -361,7 +641,7 @@ export default function Projeler({
                                     </div>
                                 )}
 
-                                {/* Çalışan isimleri varsa (ilk 3'ü göster) */}
+                                {/* Çalışan isimleri */}
                                 {proje.calisanlar && proje.calisanlar.length > 0 && (
                                     <div style={{
                                         borderTop: '1px solid #ecf0f1',
@@ -372,7 +652,7 @@ export default function Projeler({
                                             Çalışanlar:
                                         </p>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                                            {proje.calisanlar.slice(0, 3).map((calisan, idx) => (
+                                            {proje.calisanlar.slice(0, 4).map((calisan, idx) => (
                                                 <span key={idx} style={{
                                                     backgroundColor: '#3498db',
                                                     color: 'white',
@@ -381,10 +661,13 @@ export default function Projeler({
                                                     fontSize: '11px',
                                                     fontWeight: '500'
                                                 }}>
-                                                    {calisan.ad || `Çalışan ${idx + 1}`}
+                                                    {calisan.ad
+                                                        ? `${calisan.ad}${calisan.soyad ? ' ' + calisan.soyad : ''}`
+                                                        : `ID: ${calisan.id || idx + 1}`
+                                                    }
                                                 </span>
                                             ))}
-                                            {proje.calisanlar.length > 3 && (
+                                            {proje.calisanlar.length > 4 && (
                                                 <span style={{
                                                     backgroundColor: '#95a5a6',
                                                     color: 'white',
@@ -393,37 +676,39 @@ export default function Projeler({
                                                     fontSize: '11px',
                                                     fontWeight: '500'
                                                 }}>
-                                                    +{proje.calisanlar.length - 3} daha
+                                                    +{proje.calisanlar.length - 4} daha
                                                 </span>
                                             )}
                                         </div>
                                     </div>
                                 )}
 
-                                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 15, flexWrap: 'wrap' }}>
                                     <button
-                                        onClick={() => addEmployeeToThisProject(proje.id)}
+                                        onClick={() => addEmployeeToProject(proje.id)}
                                         style={{
                                             padding: '8px 12px',
                                             borderRadius: 8,
                                             border: '1px solid #2ecc71',
                                             background: '#2ecc71',
                                             color: 'white',
-                                            cursor: 'pointer'
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
                                         }}
                                     >
                                         Çalışan Ekle
                                     </button>
 
                                     <button
-                                        onClick={() => removeEmployeeFromThisProject(proje.id)}
+                                        onClick={() => removeEmployeeFromProject(proje.id)}
                                         style={{
                                             padding: '8px 12px',
                                             borderRadius: 8,
                                             border: '1px solid #f39c12',
                                             background: '#f39c12',
                                             color: 'white',
-                                            cursor: 'pointer'
+                                            cursor: 'pointer',
+                                            fontSize: '12px'
                                         }}
                                     >
                                         Çalışan Çıkar
@@ -439,7 +724,8 @@ export default function Projeler({
                                                     border: '1px solid #9b59b6',
                                                     background: '#9b59b6',
                                                     color: 'white',
-                                                    cursor: 'pointer'
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px'
                                                 }}
                                             >
                                                 Durum Güncelle
@@ -453,10 +739,11 @@ export default function Projeler({
                                                     border: '1px solid #e74c3c',
                                                     background: '#e74c3c',
                                                     color: 'white',
-                                                    cursor: 'pointer'
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px'
                                                 }}
                                             >
-                                                Projeyi Sil
+                                                Sil
                                             </button>
                                         </>
                                     )}
@@ -480,6 +767,20 @@ export default function Projeler({
                             : "Size atanan projeler burada görünecektir."
                         }
                     </p>
+                    <button
+                        onClick={createProject}
+                        style={{
+                            padding: '12px 20px',
+                            backgroundColor: '#2ecc71',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            marginTop: '10px'
+                        }}
+                    >
+                        İlk Projeyi Ekle
+                    </button>
                 </div>
             )}
         </div>

@@ -129,16 +129,12 @@ export default function LoginPage() {
     };
 
     const generateRoleBasedPassword = (username, role) => {
-        // Role bazlı şifre üretimi
-        const rolePrefix = {
-            'admin': 'ADM',
-            'user': 'USR'
-        };
-
-        const prefix = rolePrefix[role] || 'USR';
+        const rolePrefix = { admin: "ADM", user: "USR" };
+        const prefix = rolePrefix[role] || "USR";
         const userPart = username.substring(0, 3).toUpperCase();
-        const randomNum = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
-
+        const randomNum = Math.floor(Math.random() * 9999)
+            .toString()
+            .padStart(4, "0");
         return `${prefix}${userPart}${randomNum}`;
     };
 
@@ -147,7 +143,6 @@ export default function LoginPage() {
         setError("");
         setSuccess("");
 
-        // Validasyon kontrolleri
         if (newUseradi.length < 3) {
             setError("Kullanıcı adı en az 3 karakter olmalıdır.");
             return;
@@ -159,26 +154,30 @@ export default function LoginPage() {
         }
 
         try {
-            // Eğer şifre girilmemişse, role bazlı şifre üret
-            const finalPassword = newSifre || generateRoleBasedPassword(newUseradi, userRole);
+            const finalPassword =
+                newSifre || generateRoleBasedPassword(newUseradi, userRole);
 
-            const res = await api.post("api/auth/register", {
+            await api.post("api/register", {
                 useradi: newUseradi,
                 sifre: finalPassword,
-                role: userRole
+                role: userRole,
             });
 
-            setSuccess(`Kullanıcı başarıyla eklendi! ${!newSifre ? `Otomatik şifre: ${finalPassword}` : ''}`);
+            setSuccess(
+                `Kullanıcı başarıyla eklendi! ${!newSifre ? `Otomatik şifre: ${finalPassword}` : ""
+                }`
+            );
 
-            // Form temizleme
             setNewUseradi("");
             setNewSifre("");
             setConfirmSifre("");
             setUserRole("user");
-
         } catch (err) {
             console.error("Kullanıcı ekleme hatası:", err.response?.data || err.message);
-            setError("Kullanıcı eklenirken hata oluştu. " + (err.response?.data?.message || ""));
+            setError(
+                "Kullanıcı eklenirken hata oluştu. " +
+                (err.response?.data?.message || "")
+            );
         }
     };
 
@@ -186,7 +185,6 @@ export default function LoginPage() {
         setIsAddingUser(!isAddingUser);
         setError("");
         setSuccess("");
-        // Form temizleme
         setUseradi("");
         setSifre("");
         setNewUseradi("");
@@ -199,6 +197,7 @@ export default function LoginPage() {
         <div
             style={{
                 display: "flex",
+                flexDirection: "column", // buton altta görünsün diye
                 justifyContent: "center",
                 alignItems: "center",
                 minHeight: "100vh",
@@ -214,10 +213,9 @@ export default function LoginPage() {
                     backgroundColor: "#8758BD",
                     borderRadius: 8,
                     boxShadow: "0 4px 6px rgba(67, 142, 69, 0.1)",
-                    textAlign: "center"
+                    textAlign: "center",
                 }}
             >
-
                 {!isAddingUser ? (
                     // Giriş Yap Formu
                     <>
@@ -248,7 +246,7 @@ export default function LoginPage() {
                                     color: "white",
                                     border: "none",
                                     borderRadius: 4,
-                                    cursor: "pointer"
+                                    cursor: "pointer",
                                 }}
                             >
                                 Giriş Yap
@@ -268,7 +266,6 @@ export default function LoginPage() {
                                 required
                                 style={{ width: "100%", padding: 12, marginBottom: 15 }}
                             />
-
                             <select
                                 value={userRole}
                                 onChange={(e) => setUserRole(e.target.value)}
@@ -277,19 +274,17 @@ export default function LoginPage() {
                                     padding: 12,
                                     marginBottom: 15,
                                     borderRadius: 4,
-                                    border: "1px solid #ddd"
+                                    border: "1px solid #ddd",
                                 }}
                             >
                                 <option value="user">Kullanıcı</option>
                                 <option value="admin">Admin</option>
                             </select>
-
                             <div style={{ marginBottom: 15, textAlign: "left" }}>
                                 <small style={{ color: "#f0f0f0" }}>
                                     Şifre boş bırakılırsa, rol bazlı otomatik şifre üretilir
                                 </small>
                             </div>
-
                             <input
                                 type="password"
                                 placeholder="Şifre (opsiyonel - otomatik üretilir)"
@@ -297,7 +292,6 @@ export default function LoginPage() {
                                 onChange={(e) => setNewSifre(e.target.value)}
                                 style={{ width: "100%", padding: 12, marginBottom: 15 }}
                             />
-
                             {newSifre && (
                                 <input
                                     type="password"
@@ -308,7 +302,6 @@ export default function LoginPage() {
                                     style={{ width: "100%", padding: 12, marginBottom: 15 }}
                                 />
                             )}
-
                             <button
                                 type="submit"
                                 style={{
@@ -318,19 +311,44 @@ export default function LoginPage() {
                                     color: "white",
                                     border: "none",
                                     borderRadius: 4,
-                                    cursor: "pointer"
+                                    cursor: "pointer",
                                 }}
                             >
                                 Kullanıcı Ekle
                             </button>
-
                         </form>
                     </>
                 )}
-                {error && <p style={{ color: "#ff6b6b", marginTop: 15, backgroundColor: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 4 }}>{error}</p>}
-                {success && <p style={{ color: "#51cf66", marginTop: 15, backgroundColor: "rgba(255,255,255,0.1)", padding: 10, borderRadius: 4 }}>{success}</p>}
+
+                {error && (
+                    <p
+                        style={{
+                            color: "#ff6b6b",
+                            marginTop: 15,
+                            backgroundColor: "rgba(255,255,255,0.1)",
+                            padding: 10,
+                            borderRadius: 4,
+                        }}
+                    >
+                        {error}
+                    </p>
+                )}
+                {success && (
+                    <p
+                        style={{
+                            color: "#51cf66",
+                            marginTop: 15,
+                            backgroundColor: "rgba(255,255,255,0.1)",
+                            padding: 10,
+                            borderRadius: 4,
+                        }}
+                    >
+                        {success}
+                    </p>
+                )}
             </div>
-            <div style={{ marginBottom: 20 }}>
+
+            <div style={{ marginTop: 20 }}>
                 <button
                     type="button"
                     onClick={toggleMode}
@@ -341,7 +359,7 @@ export default function LoginPage() {
                         border: "none",
                         borderRadius: 4,
                         cursor: "pointer",
-                        fontSize: "14px"
+                        fontSize: "14px",
                     }}
                 >
                     {isAddingUser ? "Giriş Yap'a Dön" : "Yeni Kullanıcı Ekle"}
