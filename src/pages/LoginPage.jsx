@@ -120,7 +120,10 @@ export default function LoginPage() {
                 return;
             }
 
-            localStorage.setItem("token", token);
+            // Uygulama genelinde accessToken anahtarını kullan
+            localStorage.setItem("accessToken", token);
+            // Eski anahtar varsa temizle
+            localStorage.removeItem("token");
             navigate("/dashboard");
         } catch (err) {
             console.error("Login hatası:", err.response?.data || err.message);
@@ -157,10 +160,22 @@ export default function LoginPage() {
             const finalPassword =
                 newSifre || generateRoleBasedPassword(newUseradi, userRole);
 
-            await api.post("api/register", {
-                useradi: newUseradi,
+            // Bu işlem için admin yetkisi gerekir
+            const adminToken = localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken");
+            if (!adminToken) {
+                setError("Kullanıcı eklemek için önce admin olarak giriş yapın.");
+                return;
+            }
+
+            // Backend'de public bir register endpointi yok. Admin için /api/users/create veya /api/users/create-admin var.
+            const endpoint = userRole === "admin" ? "/api/users/create-admin" : "/api/users/create";
+
+            await api.post(endpoint, {
+                kullaniciadi: newUseradi,
                 sifre: finalPassword,
-                role: userRole,
+                eposta: "",
+            }, {
+                headers: { Authorization: `Bearer ${adminToken}` }
             });
 
             setSuccess(

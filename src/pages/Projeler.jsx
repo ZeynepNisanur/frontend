@@ -23,7 +23,7 @@ export default function Projeler({
             setError("");
 
             // Token kontrolü
-            const token = localStorage.getItem("token");
+            const token = localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken");
             if (!token) {
                 setError("Token bulunamadı. Lütfen tekrar giriş yapın.");
                 return;
@@ -32,29 +32,33 @@ export default function Projeler({
             const headers = authHeaders();
             console.log("Projeler API isteği gönderiliyor, headers:", headers);
 
-            // Farklı endpoint'leri deneyelim
             let projelerData = [];
             let projelerOzetData = null;
 
             try {
-                // Ana projeler listesi
-                const projelerRes = await api.get("/api/projeler", { headers });
-                projelerData = projelerRes.data;
+                // ADMIN ise tüm projeleri, USER ise kendi projelerini getir
+                const endpoint = role === "ADMIN" ? "/api/projeler" : "/api/projeler/my-projects";
+                const projelerRes = await api.get(endpoint, { headers });
+
+                // Controller response formatına göre veriyi al
+                if (projelerRes.data.success) {
+                    projelerData = projelerRes.data.data;
+                } else {
+                    projelerData = projelerRes.data;
+                }
+
                 console.log("Projeler verisi:", projelerData);
             } catch (err) {
-                console.warn("Ana projeler endpoint hatası:", err.response?.status, err.response?.data);
-                // Alternatif endpoint denemeleri
-                try {
-                    const altRes = await api.get("/api/dashboard/projeler", { headers });
-                    projelerData = altRes.data;
-                } catch (altErr) {
-                    console.warn("Alternatif projeler endpoint de başarısız:", altErr.response?.status);
-                }
+                console.warn("Projeler endpoint hatası:", err.response?.status, err.response?.data);
             }
 
             try {
-                // Özet bilgiler
-                const ozetRes = await api.get("/api/dashboard/projeler-ozet", { headers });
+                // Dashboard özet bilgiler - USER için farklı endpoint
+                const ozetEndpoint = role === "ADMIN"
+                    ? "/api/dashboard/projeler-ozet"
+                    : "/api/projeler/user-projects";
+
+                const ozetRes = await api.get(ozetEndpoint, { headers });
                 projelerOzetData = ozetRes.data;
                 console.log("Projeler özet verisi:", projelerOzetData);
             } catch (err) {
@@ -97,11 +101,17 @@ export default function Projeler({
 
     useEffect(() => {
         loadProjelerData();
-    }, []);
+    }, [role]); // role değiştiğinde de yeniden yükle
 
     const createProject = async () => {
+        // Sadece ADMIN proje oluşturabilir
+        if (role !== "ADMIN") {
+            alert("Proje oluşturmak için admin yetkisi gerekiyor!");
+            return;
+        }
+
         // Token kontrolü
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken");
         if (!token) {
             alert("Token bulunamadı. Lütfen tekrar giriş yapın.");
             return;
@@ -153,14 +163,21 @@ export default function Projeler({
                 requestData,
                 {
                     headers: authHeaders(),
-                    timeout: 10000 // 10 saniye timeout
+                    timeout: 10000
                 }
             );
 
             console.log("Proje ekleme response:", response.data);
-            alert("Proje başarıyla eklendi! ✅");
-            await loadProjelerData(); // Kendi reload fonksiyonumuzu kullan
-            if (refreshAll) await refreshAll(); // Ana dashboard'u da yenile
+
+            // Controller response formatına göre mesaj göster
+            if (response.data.success) {
+                alert("Proje başarıyla eklendi! ✅");
+            } else {
+                alert("Proje eklendi ✅");
+            }
+
+            await loadProjelerData();
+            if (refreshAll) await refreshAll();
         } catch (err) {
             console.error("Proje ekleme hatası:", err);
             console.error("Error response:", err.response);
@@ -168,11 +185,7 @@ export default function Projeler({
             let errorMessage = "Bilinmeyen hata";
 
             if (err.response?.status === 401) {
-                errorMessage = "Yetki hatası. Token geçersiz veya süresi dolmuş. Lütfen tekrar giriş yapın.";
-                // Token'ı temizle ve login sayfasına yönlendir
-                localStorage.removeItem("token");
-                window.location.href = "/";
-                return;
+                errorMessage = "Yetki hatası. Lütfen tekrar deneyin veya girşi yapın.";
             } else if (err.response?.status === 403) {
                 errorMessage = "Bu işlem için yetkiniz yok. Admin olmanız gerekiyor.";
             } else if (err.response?.status === 400) {
@@ -188,7 +201,7 @@ export default function Projeler({
     };
 
     const updateProjectStatus = async (projeId, currentStatus) => {
-        // Önce yetki kontrolü yap
+        // Sadece ADMIN durum güncelleyebilir
         if (role !== "ADMIN") {
             alert("Bu işlem için admin yetkisi gerekiyor!");
             return;
@@ -201,7 +214,6 @@ export default function Projeler({
             "ARA_VERILDI": "Ara Verildi"
         };
 
-        // Mevcut durumu göster ve seçenekleri listele
         let message = `Mevcut durum: ${statusDisplayNames[currentStatus] || currentStatus}\n\n`;
         message += "Yeni durum seçin:\n";
         statusOptions.forEach((status, index) => {
@@ -220,7 +232,6 @@ export default function Projeler({
 
         const newStatus = statusOptions[choiceNumber - 1];
 
-        // Aynı durum seçilmişse işlem yapma
         if (newStatus === currentStatus) {
             alert("Seçilen durum mevcut durumla aynı.");
             return;
@@ -230,41 +241,36 @@ export default function Projeler({
             console.log("Durum güncelleme isteği gönderiliyor:", {
                 projeId,
                 currentStatus,
-                newStatus,
-                headers: authHeaders()
+                newStatus
             });
 
-            // Farklı endpoint denemeleri
+            // Controller'da tanımlı endpoint'leri sırayla deneyelim
             let response;
             const endpoints = [
-                `/api/projeler/${projeId}/durum`,
-                `/api/projeler/${projeId}`,
-                `/api/projeler/${projeId}/status`
+                { url: `/api/projeler/${projeId}/durum`, method: 'put', data: { durum: newStatus } },
+                { url: `/api/projeler/${projeId}/durum`, method: 'patch', data: { durum: newStatus } },
+                { url: `/api/projeler/${projeId}`, method: 'put', data: { durum: newStatus } }
             ];
 
-            const methods = ['put', 'patch'];
             let lastError;
 
-            for (const method of methods) {
-                for (const endpoint of endpoints) {
-                    try {
-                        console.log(`Denenen: ${method.toUpperCase()} ${endpoint}`);
-                        response = await api[method](
-                            endpoint,
-                            { durum: newStatus },
-                            { headers: authHeaders() }
-                        );
-                        console.log("Başarılı response:", response.data);
-                        break;
-                    } catch (err) {
-                        console.log(`${method.toUpperCase()} ${endpoint} başarısız:`, err.response?.status);
-                        lastError = err;
-                        if (err.response?.status !== 404 && err.response?.status !== 405) {
-                            throw err; // 404 ve 405 dışındaki hatalar için döngüyü kır
-                        }
+            for (const endpoint of endpoints) {
+                try {
+                    console.log(`Denenen: ${endpoint.method.toUpperCase()} ${endpoint.url}`);
+                    response = await api[endpoint.method](
+                        endpoint.url,
+                        endpoint.data,
+                        { headers: authHeaders() }
+                    );
+                    console.log("Başarılı response:", response.data);
+                    break;
+                } catch (err) {
+                    console.log(`${endpoint.method.toUpperCase()} ${endpoint.url} başarısız:`, err.response?.status);
+                    lastError = err;
+                    if (err.response?.status !== 404 && err.response?.status !== 405) {
+                        throw err;
                     }
                 }
-                if (response) break;
             }
 
             if (!response) {
@@ -294,6 +300,12 @@ export default function Projeler({
     };
 
     const deleteProject = async (projeId) => {
+        // Sadece ADMIN proje silebilir
+        if (role !== "ADMIN") {
+            alert("Bu işlem için admin yetkisi gerekiyor!");
+            return;
+        }
+
         if (!window.confirm("Bu proje silinsin mi? Bu işlem geri alınamaz!")) return;
 
         try {
@@ -308,89 +320,77 @@ export default function Projeler({
     };
 
     const addEmployeeToProject = async (projeId) => {
+        // Sadece ADMIN çalışan ekleyebilir
+        if (role !== "ADMIN") {
+            alert("Bu işlem için admin yetkisi gerekiyor!");
+            return;
+        }
+
         const calisanId = window.prompt("Hangi çalışan ID'si eklensin?");
         if (!calisanId) return;
 
         try {
-            // Farklı endpoint formatlarını deneyelim
-            const endpoints = [
-                `/api/projeler/${projeId}/calisanlar/${calisanId}/ekle`,
-                `/api/projeler/${projeId}/calisanlar`,
-                `/api/projeler/${projeId}/employees/${calisanId}`
-            ];
+            // Controller'da tanımlı exact endpoint
+            const endpoint = `/api/projeler/${projeId}/calisanlar/${calisanId}/ekle`;
 
-            let success = false;
-            let lastError;
-
-            for (const endpoint of endpoints) {
-                try {
-                    console.log(`Çalışan ekleme denemesi: POST ${endpoint}`);
-                    await api.post(endpoint, {}, { headers: authHeaders() });
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.log(`POST ${endpoint} başarısız:`, err.response?.status);
-                    lastError = err;
-                    if (err.response?.status !== 404 && err.response?.status !== 405) {
-                        throw err;
-                    }
-                }
-            }
-
-            if (!success) {
-                throw lastError || new Error("Tüm endpoint'ler başarısız");
-            }
+            console.log(`Çalışan ekleme: POST ${endpoint}`);
+            await api.post(endpoint, {}, { headers: authHeaders() });
 
             alert("Çalışan projeye eklendi ✅");
             await loadProjelerData();
             if (refreshAll) await refreshAll();
         } catch (err) {
             console.error("Çalışan ekleme hatası:", err);
-            const errorMessage = err.response?.data?.message || err.response?.data || err.message;
+            let errorMessage = "Bilinmeyen hata";
+
+            if (err.response?.status === 403) {
+                errorMessage = "Bu işlem için yetkiniz yok";
+            } else if (err.response?.status === 404) {
+                errorMessage = "Proje veya çalışan bulunamadı";
+            } else if (err.response?.status === 400) {
+                errorMessage = "Geçersiz çalışan ID'si";
+            } else {
+                errorMessage = err.response?.data?.message || err.response?.data || err.message;
+            }
+
             alert("Ekleme hatası: " + errorMessage);
         }
     };
 
     const removeEmployeeFromProject = async (projeId) => {
+        // Sadece ADMIN çalışan çıkarabilir
+        if (role !== "ADMIN") {
+            alert("Bu işlem için admin yetkisi gerekiyor!");
+            return;
+        }
+
         const calisanId = window.prompt("Hangi çalışan ID'si çıkarılsın?");
         if (!calisanId) return;
 
         try {
-            // Farklı endpoint formatlarını deneyelim
-            const endpoints = [
-                `/api/projeler/${projeId}/calisanlar/${calisanId}/cikar`,
-                `/api/projeler/${projeId}/calisanlar/${calisanId}`,
-                `/api/projeler/${projeId}/employees/${calisanId}`
-            ];
+            // Controller'da tanımlı exact endpoint
+            const endpoint = `/api/projeler/${projeId}/calisanlar/${calisanId}/cikar`;
 
-            let success = false;
-            let lastError;
-
-            for (const endpoint of endpoints) {
-                try {
-                    console.log(`Çalışan çıkarma denemesi: DELETE ${endpoint}`);
-                    await api.delete(endpoint, { headers: authHeaders() });
-                    success = true;
-                    break;
-                } catch (err) {
-                    console.log(`DELETE ${endpoint} başarısız:`, err.response?.status);
-                    lastError = err;
-                    if (err.response?.status !== 404 && err.response?.status !== 405) {
-                        throw err;
-                    }
-                }
-            }
-
-            if (!success) {
-                throw lastError || new Error("Tüm endpoint'ler başarısız");
-            }
+            console.log(`Çalışan çıkarma: DELETE ${endpoint}`);
+            await api.delete(endpoint, { headers: authHeaders() });
 
             alert("Çalışan projeden çıkarıldı ✅");
             await loadProjelerData();
             if (refreshAll) await refreshAll();
         } catch (err) {
             console.error("Çalışan çıkarma hatası:", err);
-            const errorMessage = err.response?.data?.message || err.response?.data || err.message;
+            let errorMessage = "Bilinmeyen hata";
+
+            if (err.response?.status === 403) {
+                errorMessage = "Bu işlem için yetkiniz yok";
+            } else if (err.response?.status === 404) {
+                errorMessage = "Proje veya çalışan bulunamadı";
+            } else if (err.response?.status === 400) {
+                errorMessage = "Geçersiz çalışan ID'si";
+            } else {
+                errorMessage = err.response?.data?.message || err.response?.data || err.message;
+            }
+
             alert("Çıkarma hatası: " + errorMessage);
         }
     };
@@ -446,12 +446,16 @@ export default function Projeler({
     return (
         <div>
             <div style={{ marginBottom: '30px' }}>
-                <h2 style={h2Style}>📋 Projeler Yönetimi</h2>
+                <h2 style={h2Style}>
+                    📋 {role === "ADMIN" ? "Projeler Yönetimi" : "Projelerim"}
+                </h2>
                 <p style={{ color: '#666', marginBottom: '20px' }}>
-                    <strong>Toplam Proje:</strong> {projelerOzet?.toplamProjeSayisi || projelerListesi.length || 0}
+                    <strong>
+                        {role === "ADMIN" ? "Toplam Proje:" : "Atandığınız Proje Sayısı:"}
+                    </strong> {projelerOzet?.toplamProjeSayisi || projelerListesi.length || 0}
                 </p>
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                    {(role === "ADMIN" || role === "USER") && (
+                    {role === "ADMIN" && (
                         <button
                             onClick={createProject}
                             style={{
@@ -486,7 +490,7 @@ export default function Projeler({
             <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
                     <StatCard
-                        title="Toplam Proje"
+                        title={role === "ADMIN" ? "Toplam Proje" : "Projelerim"}
                         value={projelerOzet?.toplamProjeSayisi || projelerListesi.length || 0}
                         color="#2ecc71"
                     />
@@ -522,7 +526,7 @@ export default function Projeler({
                 color: '#6c757d'
             }}>
                 <strong>Debug:</strong> {projelerListesi.length} proje bulundu.
-                Detay listesi: {projelerDetay.length},
+                Role: {role}, Detay listesi: {projelerDetay.length},
                 Özet listesi: {projelerOzet?.projeler?.length || 0}
             </div>
 
@@ -557,7 +561,7 @@ export default function Projeler({
             {/* Proje Listesi */}
             {projelerListesi.length > 0 ? (
                 <div>
-                    <h3 style={h3Style}>🚀 Tüm Projeler ({projelerListesi.length})</h3>
+                    <h3 style={h3Style}>🚀 {role === "ADMIN" ? "Tüm Projeler" : "Projelerim"} ({projelerListesi.length})</h3>
                     <div style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))',
@@ -683,39 +687,40 @@ export default function Projeler({
                                     </div>
                                 )}
 
+                                {/* Action Buttons - Role bazlı kontrol */}
                                 <div style={{ display: 'flex', gap: 8, marginTop: 15, flexWrap: 'wrap' }}>
-                                    <button
-                                        onClick={() => addEmployeeToProject(proje.id)}
-                                        style={{
-                                            padding: '8px 12px',
-                                            borderRadius: 8,
-                                            border: '1px solid #2ecc71',
-                                            background: '#2ecc71',
-                                            color: 'white',
-                                            cursor: 'pointer',
-                                            fontSize: '12px'
-                                        }}
-                                    >
-                                        Çalışan Ekle
-                                    </button>
-
-                                    <button
-                                        onClick={() => removeEmployeeFromProject(proje.id)}
-                                        style={{
-                                            padding: '8px 12px',
-                                            borderRadius: 8,
-                                            border: '1px solid #f39c12',
-                                            background: '#f39c12',
-                                            color: 'white',
-                                            cursor: 'pointer',
-                                            fontSize: '12px'
-                                        }}
-                                    >
-                                        Çalışan Çıkar
-                                    </button>
-
                                     {role === "ADMIN" && (
                                         <>
+                                            <button
+                                                onClick={() => addEmployeeToProject(proje.id)}
+                                                style={{
+                                                    padding: '8px 12px',
+                                                    borderRadius: 8,
+                                                    border: '1px solid #2ecc71',
+                                                    background: '#2ecc71',
+                                                    color: 'white',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px'
+                                                }}
+                                            >
+                                                Çalışan Ekle
+                                            </button>
+
+                                            <button
+                                                onClick={() => removeEmployeeFromProject(proje.id)}
+                                                style={{
+                                                    padding: '8px 12px',
+                                                    borderRadius: 8,
+                                                    border: '1px solid #f39c12',
+                                                    background: '#f39c12',
+                                                    color: 'white',
+                                                    cursor: 'pointer',
+                                                    fontSize: '12px'
+                                                }}
+                                            >
+                                                Çalışan Çıkar
+                                            </button>
+
                                             <button
                                                 onClick={() => updateProjectStatus(proje.id, proje.durum)}
                                                 style={{
@@ -747,6 +752,24 @@ export default function Projeler({
                                             </button>
                                         </>
                                     )}
+
+                                    {/* USER için sadece proje detay görme butonu */}
+                                    {role === "USER" && (
+                                        <button
+                                            onClick={() => alert(`Proje ID: ${proje.id}\nBaşlık: ${proje.baslik}\nDurum: ${proje.durum}`)}
+                                            style={{
+                                                padding: '8px 12px',
+                                                borderRadius: 8,
+                                                border: '1px solid #3498db',
+                                                background: '#3498db',
+                                                color: 'white',
+                                                cursor: 'pointer',
+                                                fontSize: '12px'
+                                            }}
+                                        >
+                                            Detay Görüntüle
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         ))}
@@ -760,27 +783,29 @@ export default function Projeler({
                     borderRadius: '12px',
                     border: '1px solid #e1e8ed'
                 }}>
-                    <h3 style={{ color: '#7f8c8d' }}>📭 Henüz proje bulunmuyor</h3>
+                    <h3 style={{ color: '#7f8c8d' }}>📭 {role === "ADMIN" ? "Henüz proje bulunmuyor" : "Size atanan proje bulunmuyor"}</h3>
                     <p style={{ color: '#bdc3c7' }}>
                         {role === "ADMIN"
                             ? "Sisteme proje eklendikçe burada görünecektir."
                             : "Size atanan projeler burada görünecektir."
                         }
                     </p>
-                    <button
-                        onClick={createProject}
-                        style={{
-                            padding: '12px 20px',
-                            backgroundColor: '#2ecc71',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            marginTop: '10px'
-                        }}
-                    >
-                        İlk Projeyi Ekle
-                    </button>
+                    {role === "ADMIN" && (
+                        <button
+                            onClick={createProject}
+                            style={{
+                                padding: '12px 20px',
+                                backgroundColor: '#2ecc71',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                marginTop: '10px'
+                            }}
+                        >
+                            İlk Projeyi Ekle
+                        </button>
+                    )}
                 </div>
             )}
         </div>

@@ -23,7 +23,7 @@ export default function Dashboard() {
     const h3Style = { color: headingGray, margin: "0 0 10px 0" };
 
     const authHeaders = () => ({
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
+        Authorization: `Bearer ${localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken")}`,
     });
 
     const formatDate = (val) => {
@@ -48,7 +48,7 @@ export default function Dashboard() {
     };
 
     useEffect(() => {
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken");
         if (!token) {
             navigate("/");
             return;
@@ -67,7 +67,8 @@ export default function Dashboard() {
             fetchDashboardData(token, roles);
         } catch (e) {
             console.error("Token decode hatası", e);
-            localStorage.removeItem("token");
+            localStorage.removeItem("accessToken");
+            sessionStorage.removeItem("accessToken");
             navigate("/");
         }
     }, [navigate]);
@@ -111,7 +112,8 @@ export default function Dashboard() {
     };
 
     const logout = () => {
-        localStorage.removeItem("token");
+        localStorage.removeItem("accessToken");
+        sessionStorage.removeItem("accessToken");
         navigate("/");
     };
 

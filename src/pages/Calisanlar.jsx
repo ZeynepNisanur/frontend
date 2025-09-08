@@ -22,7 +22,7 @@ export default function Calisanlar({
             setError("");
 
             // Token kontrolü
-            const token = localStorage.getItem("token");
+            const token = localStorage.getItem("accessToken") || sessionStorage.getItem("accessToken");
             if (!token) {
                 setError("Token bulunamadı. Lütfen tekrar giriş yapın.");
                 return;
@@ -31,21 +31,25 @@ export default function Calisanlar({
             const headers = authHeaders();
             console.log("API isteği gönderiliyor, headers:", headers);
 
-            // Farklı endpoint'leri deneyelim
             let calisanlarData = [];
             let calisanlarOzetData = null;
 
             try {
                 // Ana çalışanlar listesi
                 const calisanlarRes = await api.get("/api/calisanlar", { headers });
-                calisanlarData = calisanlarRes.data;
+                // Backend çoğunlukla { success, data } döndürüyor
+                if (calisanlarRes.data && Array.isArray(calisanlarRes.data.data)) {
+                    calisanlarData = calisanlarRes.data.data;
+                } else {
+                    calisanlarData = calisanlarRes.data;
+                }
                 console.log("Çalışanlar verisi:", calisanlarData);
             } catch (err) {
                 console.warn("Ana çalışanlar endpoint hatası:", err.response?.status, err.response?.data);
                 // Alternatif endpoint denemeleri
                 try {
                     const altRes = await api.get("/api/dashboard/calisanlar", { headers });
-                    calisanlarData = altRes.data;
+                    calisanlarData = altRes.data?.data || altRes.data;
                 } catch (altErr) {
                     console.warn("Alternatif endpoint de başarısız:", altErr.response?.status);
                 }
@@ -63,6 +67,8 @@ export default function Calisanlar({
             // Veriyi normalize et
             if (Array.isArray(calisanlarData)) {
                 setCalisanlarDetay(calisanlarData);
+            } else if (Array.isArray(calisanlarData?.data)) {
+                setCalisanlarDetay(calisanlarData.data);
             } else if (calisanlarData?.calisanlar && Array.isArray(calisanlarData.calisanlar)) {
                 setCalisanlarDetay(calisanlarData.calisanlar);
             }
